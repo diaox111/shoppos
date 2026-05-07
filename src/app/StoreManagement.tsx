@@ -1,8 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getStore, updateStore, getStaffByStore, createUser, removeUser, getRevenueStats } from '@/lib/db';
+import { recognizeLicense } from '@/lib/ai';
+import { getAllCities, getCityData, getDefaultDistricts, getAreaDesc, getPricingFactor } from '@/lib/regions';
 import type { Store, User, RevenueStats } from '@/types';
+
+const ALL_CITIES = getAllCities();
 
 interface Props {
   storeId: string;
@@ -23,11 +27,29 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
   // Form
   const [form, setForm] = useState({ name: '', address: '', phone: '', license_no: '', business_scope: '' });
 
+  // Region selector (like registration)
+  const [editCity, setEditCity] = useState('');
+  const [editDistrict, setEditDistrict] = useState('');
+  const [editArea, setEditArea] = useState('');
+  const [detailAddress, setDetailAddress] = useState('');
+
+  // License photo
+  const [licenseImage, setLicenseImage] = useState('');
+  const [licenseLoading, setLicenseLoading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   // Add staff
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
 
   const isOwner = currentUser.role === 'owner';
+
+  // Region data
+  const cityData = getCityData(editCity);
+  const districts = cityData ? cityData.districts : (editCity ? getDefaultDistricts() : []);
+  const areas = districts.find(d => d.name === editDistrict)?.areas || [];
+  const areaDesc = getAreaDesc(editCity, editDistrict, editArea);
+  const pricingFactor = getPricingFactor(editCity, editDistrict, editArea);
 
   useEffect(() => { loadData(); }, [storeId]);
 
@@ -37,6 +59,10 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
     if (s) {
       setStore(s);
       setForm({ name: s.name, address: s.address || '', phone: s.phone || '', license_no: s.license_no || '', business_scope: s.business_scope || '' });
+      // Parse city from stored city string (format: "city-district area")
+      setEditCity(s.city ? s.city.split('-')[0].split(' ')[0] : '');
+      setDetailAddress(s.address || '');
+      if (s.license_image) setLicenseImage(s.license_image);
     }
     const st = await getStaffByStore(storeId);
     setStaff(st);
@@ -49,12 +75,19 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
     if (!form.name.trim()) return;
     setSaving(true); setMsg('');
     try {
+      const cityParts = [editCity];
+      if (editDistrict) cityParts.push('-' + editDistrict);
+      if (editArea) cityParts.push(' ' + editArea);
+      const cityStr = cityParts.join('');
+
       await updateStore(storeId, {
         name: form.name.trim(),
-        address: form.address.trim(),
+        city: cityStr || store?.city,
+        address: detailAddress.trim(),
         phone: form.phone.trim(),
         license_no: form.license_no.trim(),
         business_scope: form.business_scope.trim(),
+        license_image: licenseImage || undefined,
       });
       setMsg('✅ 门店信息已保存');
       onStoreUpdated();
@@ -62,6 +95,33 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
     setSaving(false);
   }
 
+  // License photo capture + AI OCR
+  const handleLicensePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      setLicenseImage(base64);
+      setLicenseLoading(true);
+      setMsg('🔍 AI 识别营业执照中...');
+      try {
+        const result = await recognizeLicense(base64);
+        setForm(prev => ({
+          ...prev,
+          name: result.company_name || prev.name,
+          license_no: result.credit_code || prev.license_no,
+          business_scope: result.business_scope || prev.business_scope,
+        }));
+        setDetailAddress(result.address || detailAddress);
+        setMsg('✅ 证照识别完成');
+      } catch { setMsg('⚠️ 识别失败，请手动填写'); }
+      setLicenseLoading(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Add staff
   async function handleAddStaff() {
     if (!newStaffName.trim() || !newStaffPin.trim()) return;
     try {
@@ -106,37 +166,97 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
         ))}
       </div>
 
-      {msg && <div className={`text-sm p-2 rounded-lg ${msg.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{msg}</div>}
+      {msg && <div className={`text-sm p-2 rounded-lg ${msg.startsWith('✅') ? 'bg-green-50 text-green-700' : msg.startsWith('⚠️') || msg.startsWith('❌') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{msg}</div>}
 
       {/* ═══ 门店信息 ═══ */}
       {subtab === 'info' && (
         <div className="space-y-3">
+          {/* Basic Info */}
           <div className="card">
             <h3 className="font-bold mb-3">📋 基本信息</h3>
             <div className="space-y-2">
               <div><label className="text-xs text-gray-500 mb-1 block">店名 *</label>
                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input" placeholder="店铺名称" /></div>
+
+              {/* Region selector — same as registration */}
+              <div><label className="text-xs text-gray-500 mb-1 block">所在城市 *</label>
+                <select value={editCity} onChange={e => { setEditCity(e.target.value); setEditDistrict(''); setEditArea(''); }} className="input">
+                  <option value="">选择城市</option>
+                  {ALL_CITIES.map(c => <option key={c.name} value={c.name}>{c.province} {c.name}</option>)}
+                </select></div>
+
+              {editCity && districts.length > 0 && (
+                <div><label className="text-xs text-gray-500 mb-1 block">所在区域</label>
+                  <select value={editDistrict} onChange={e => { setEditDistrict(e.target.value); setEditArea(''); }} className="input">
+                    <option value="">选择区县</option>
+                    {districts.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+                  </select></div>
+              )}
+
+              {editDistrict && areas.length > 0 && (
+                <div><label className="text-xs text-gray-500 mb-1 block">具体地段</label>
+                  <select value={editArea} onChange={e => setEditArea(e.target.value)} className="input">
+                    <option value="">不选</option>
+                    {areas.map(a => <option key={a.name} value={a.name}>{a.name} ({a.desc})</option>)}
+                  </select></div>
+              )}
+
+              {editCity && areaDesc && (
+                <p className="text-xs text-blue-600">📍 {areaDesc}</p>
+              )}
+
               <div><label className="text-xs text-gray-500 mb-1 block">详细地址</label>
-                <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="input" placeholder="省市区街道门牌号" /></div>
+                <input value={detailAddress} onChange={e => setDetailAddress(e.target.value)} className="input" placeholder="街道门牌号（手动填写）" /></div>
+
               <div><label className="text-xs text-gray-500 mb-1 block">联系电话</label>
                 <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="input" placeholder="手机或座机号" /></div>
             </div>
           </div>
 
+          {/* License */}
           <div className="card">
             <h3 className="font-bold mb-3">📜 证照信息</h3>
+
+            {/* License photo */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-500 mb-1 block">营业执照</label>
+              {licenseImage ? (
+                <div className="relative">
+                  <img src={licenseImage} className="w-full h-40 object-contain rounded-xl border border-gray-200 bg-gray-50" />
+                  <button onClick={() => { setLicenseImage(''); setMsg(''); }} className="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">✕</button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl py-6 cursor-pointer text-gray-400 hover:border-blue-400 hover:text-blue-500">
+                  📸 拍摄营业执照（自动识别）
+                  <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleLicensePhoto} className="hidden" />
+                </label>
+              )}
+              {licenseLoading && (
+                <div className="flex items-center gap-2 mt-2 text-sm text-blue-600">
+                  <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+                  识别中...
+                </div>
+              )}
+              {licenseImage && !licenseLoading && (
+                <button onClick={() => fileRef.current?.click()} className="text-xs text-blue-600 mt-1">🔄 重新拍摄</button>
+              )}
+            </div>
+
             <div className="space-y-2">
               <div><label className="text-xs text-gray-500 mb-1 block">营业执照号</label>
-                <input value={form.license_no} onChange={e => setForm({ ...form, license_no: e.target.value })} className="input" placeholder="统一社会信用代码" /></div>
+                <input value={form.license_no} onChange={e => setForm({ ...form, license_no: e.target.value })} className="input" placeholder="统一社会信用代码（拍照自动识别）" /></div>
               <div><label className="text-xs text-gray-500 mb-1 block">经营范围</label>
-                <textarea value={form.business_scope} onChange={e => setForm({ ...form, business_scope: e.target.value })} className="input h-20 resize-none" placeholder="例如：食品销售、烟草制品零售、日用百货..." /></div>
+                <textarea value={form.business_scope} onChange={e => setForm({ ...form, business_scope: e.target.value })} className="input h-20 resize-none" placeholder="拍照自动识别，也可手动修改..." /></div>
             </div>
           </div>
 
+          {/* Store meta */}
           <div className="card bg-gray-50">
-            <p className="text-xs text-gray-400"><span className="font-bold">邀请码：</span><code className="bg-gray-200 px-1 rounded">{store?.invite_code}</code> — 店员凭此码加入</p>
+            <p className="text-xs text-gray-400"><span className="font-bold">邀请码：</span><code className="bg-gray-200 px-1 rounded">{store?.invite_code}</code></p>
             <p className="text-xs text-gray-400 mt-1"><span className="font-bold">店主：</span>{store?.owner_name || '未设置'}</p>
-            <p className="text-xs text-gray-400 mt-1"><span className="font-bold">城市：</span>{store?.city || '未选择'}</p>
+            {pricingFactor !== 1.0 && (
+              <p className="text-xs text-blue-600 mt-1"><span className="font-bold">定价系数：</span>{pricingFactor}x</p>
+            )}
             <p className="text-xs text-gray-400 mt-1"><span className="font-bold">创建：</span>{store?.created_at ? new Date(store.created_at).toLocaleDateString('zh-CN') : '-'}</p>
           </div>
 
@@ -195,7 +315,6 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
             <div className="card text-center py-8 text-gray-400">暂无数据</div>
           ) : (
             <>
-              {/* Summary Cards */}
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: '📅 今日', data: revenue.today },
@@ -214,7 +333,6 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
                 ))}
               </div>
 
-              {/* Profit highlight */}
               <div className="card bg-gradient-to-r from-green-50 to-blue-50">
                 <p className="text-xs text-gray-500 mb-1">💰 本月毛利</p>
                 <p className="text-2xl font-bold text-green-600">¥{revenue.thisMonth.profit.toLocaleString()}</p>
@@ -228,7 +346,6 @@ export default function StoreManagement({ storeId, currentUser, onStoreUpdated, 
             </>
           )}
 
-          {/* Refresh button */}
           {isOwner && (
             <button onClick={loadData} className="btn-outline w-full text-sm">🔄 刷新数据</button>
           )}

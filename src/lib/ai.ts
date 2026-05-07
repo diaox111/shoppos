@@ -92,3 +92,59 @@ ${locInfo}
     return fallback;
   }
 }
+
+// ── 营业执照 OCR ──
+
+export interface LicenseResult {
+  company_name: string;
+  credit_code: string;
+  legal_person: string;
+  address: string;
+  business_scope: string;
+}
+
+export async function recognizeLicense(
+  imageBase64: string,
+  signal?: AbortSignal
+): Promise<LicenseResult> {
+  const fallback: LicenseResult = { company_name: '', credit_code: '', legal_person: '', address: '', business_scope: '' };
+  if (!MINIMAX_KEY) return fallback;
+
+  const prompt = `这是一张营业执照的照片，请仔细识别图片中的所有文字信息。
+
+返回JSON：{
+  "company_name": "企业名称",
+  "credit_code": "统一社会信用代码",
+  "legal_person": "法定代表人",
+  "address": "注册地址",
+  "business_scope": "经营范围"
+}
+
+- 仅返回JSON，不要任何其他内容
+- 无法识别的字段留空字符串`;
+
+  try {
+    const res = await fetch(MINIMAX_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MINIMAX_KEY}` },
+      body: JSON.stringify({ model: 'MiniMax-M2.7', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 800 }),
+      signal,
+    });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || '{}';
+    let result: any;
+    try { result = JSON.parse(content.replace(/```json\n?|\n?```/g, '').trim()); }
+    catch { const m = content.match(/\{[\s\S]*\}/); result = m ? JSON.parse(m[0]) : {}; }
+    return {
+      company_name: result.company_name || '',
+      credit_code: result.credit_code || '',
+      legal_person: result.legal_person || '',
+      address: result.address || '',
+      business_scope: result.business_scope || '',
+    };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
+    return fallback;
+  }
+}
