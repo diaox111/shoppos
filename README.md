@@ -1,25 +1,38 @@
-# 商店智能收银 POS
+# 🏪 商店智能收银 POS
 
-小商店智能收银系统 — 手机扫码录入商品、AI自动识别定价、收银管理、库存预警、供应商新品推荐。
+小商店 AI 智能经营管理助手 — 扫码识别 · AI定价 · 供应商推荐 · 库存预警
 
 ## 功能
 
-- 📷 **扫码录入** — 手机摄像头扫描条形码
-- 🤖 **AI 智能识别** — DeepSeek 自动识别商品名称、分类、建议售价
-- 🛒 **收银台** — 连续扫码加入购物车，自动计算总金额
-- 📦 **商品管理** — 搜索、编辑、库存追踪
-- 🔔 **库存预警** — 低库存自动提醒 + 供应商新品推荐
-- 👥 **多角色** — 店长/店员，权限分离
-- 📱 **PWA** — 可添加到手机桌面，像原生 App
-
-## 部署步骤
-
-1. 创建 Supabase 项目：https://supabase.com
-2. 在 SQL Editor 中执行 `supabase_schema.sql`
-3. 复制 `.env.example` 为 `.env`，填入 Supabase URL/Key + DeepSeek Key
-4. `npm install && npm run dev`
-5. 用手机浏览器打开（需要在同一网络），或部署到 Vercel
+- 📷 **扫码/拍照识别商品** — ZXing 实时扫码 + AI 多模态拍照识别
+- 🤖 **AI 自动填表** — 品名/分类/规格/售价 一键识别
+- 💰 **区域智能定价** — 全国 34 省 300+ 城市商圈景区定价系数
+- 📦 **库存管理** — 左滑删除(归档恢复) · 保质期追踪 · 缺货预警
+- 📥 **进货管理** — 扫码搜商品→填数量/进价→一键入库
+- 🛒 **收银结算** — 扫码即加购物车 · 数量加减 · 一键收款
+- 📣 **供应商广告** — 顶部滚动展示批发价和联系方式
+- 🚬 **香烟双价** — 单盒售价 + 整条售价分别管理
 
 ## 技术栈
 
-Next.js 14 · Supabase · DeepSeek AI · html5-qrcode · Tailwind CSS · PWA
+Next.js 14 · Capacitor 8 (Android APK) · IndexedDB · ZXing · Tailwind CSS · OpenAI 兼容 AI API
+
+## 安装
+
+```bash
+npm install
+npm run dev
+```
+
+## 构建 APK
+
+```bash
+npm run build
+npx cap sync android
+cd android && ./gradlew assembleDebug
+# APK 输出: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+## 许可
+
+源码公开可查看，**禁止商用**。
