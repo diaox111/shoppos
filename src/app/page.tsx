@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  createStore, createUser, loginByPin,
+  createStore, createUser, loginByPin, updateStore,
   upsertProduct, getProductByBarcode, getProductsByStore, updateProductStock,
   createSale, createStockAlert, getStockAlerts,
   initSupplierAds, archiveProduct, getArchivedByBarcode, restoreProduct, markAlertsRead,
@@ -12,6 +12,7 @@ import { recognizeBarcode, recognizePhoto } from '@/lib/ai';
 import { CATEGORIES, getCategoryLabel } from '@/lib/categories';
 import { getAllCities, getCityData, getDefaultDistricts, getPricingFactor, getAreaDesc } from '@/lib/regions';
 import BarcodeScannerView from './BarcodeScannerView';
+import StoreManagement from './StoreManagement';
 import type { User, Product, CartItem } from '@/types';
 
 const ALL_CITIES = getAllCities();
@@ -96,7 +97,7 @@ export default function Home() {
 
   // ── Auth
   const handleLogin = async () => { setLoginError(''); const found = await loginByPin(loginPin); if (!found) { setLoginError('PIN码错误'); return; } localStorage.setItem('shoppos_user', JSON.stringify(found)); setUser(found); setShowLogin(false); loadData(found); };
-  const handleSetup = async () => { if (!setupName || !setupPin) return; const cityName = setupCity + (setupDistrict ? '-' + setupDistrict : '') + (setupArea ? ' ' + setupArea : ''); const store = await createStore(setupName, cityName); const owner = await createUser(store.id, '店长', 'owner', setupPin); localStorage.setItem('shoppos_user', JSON.stringify(owner)); setUser(owner); setShowLogin(false); setShowSetup(false); loadData(owner); };
+  const handleSetup = async () => { if (!setupName || !setupPin) return; const cityName = setupCity + (setupDistrict ? '-' + setupDistrict : '') + (setupArea ? ' ' + setupArea : ''); const store = await createStore(setupName, cityName, setupName + '店主'); const owner = await createUser(store.id, setupName + '店主', 'owner', setupPin); await updateStore(store.id, { owner_name: setupName + '店主', owner_user_id: owner.id }); localStorage.setItem('shoppos_user', JSON.stringify(owner)); setUser(owner); setShowLogin(false); setShowSetup(false); loadData(owner); };
   const handleLogout = () => { localStorage.removeItem('shoppos_user'); setUser(null); setShowLogin(true); setCart([]); };
 
   // ── Location
@@ -159,8 +160,9 @@ export default function Home() {
 
   const handleCheckout = async () => {
     if (!user || cart.length === 0) return;
-    const items = cart.map(i => ({ product_id: i.id, product_name: i.name, barcode: i.barcode, price: i.sell_price, quantity: i.cartQty }));
-    await createSale(user.store_id, user.id, cartTotal, cartCount, items);
+    const items = cart.map(i => ({ product_id: i.id, product_name: i.name, barcode: i.barcode, price: i.sell_price, cost_price: i.cost_price, quantity: i.cartQty }));
+    const profit = cart.reduce((s, i) => s + (i.sell_price - i.cost_price) * i.cartQty, 0);
+    await createSale(user.store_id, user.id, user.name, cartTotal, cartCount, Math.round(profit * 100) / 100, items);
     for (const item of cart) { const ns = Math.max(0, item.stock - item.cartQty); await updateProductStock(item.id, ns); if (ns <= item.min_stock) await createStockAlert(user.store_id, item.id, ns, item.min_stock); }
     setCheckoutMsg('✅ 收款 ¥' + cartTotal.toFixed(2)); setCart([]); loadData(user); setTimeout(() => setCheckoutMsg(''), 3000);
   };
@@ -401,12 +403,13 @@ export default function Home() {
       )}
 
       {/* ═══ SETTINGS TAB — 设置 ═══ */}
-      {tab === 'settings' && (
-        <div className="p-4 space-y-4">
-          <h2 className="text-xl font-bold">⚙️ 设置</h2>
-          <div className="card"><h3 className="font-bold mb-2">📋 店铺信息</h3><p className="text-sm">商品数：{products.length}</p><p className="text-sm text-gray-500">定位：{areaDesc}</p><p className="text-xs text-gray-400 mt-1">💾 数据存储在本地</p></div>
-          <button onClick={handleLogout} className="btn-outline w-full text-red-500 border-red-500">退出登录</button>
-        </div>
+      {tab === 'settings' && user && (
+        <StoreManagement
+          storeId={user.store_id}
+          currentUser={user}
+          onStoreUpdated={() => loadData(user)}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* ═══ Bottom Nav ═══ */}
