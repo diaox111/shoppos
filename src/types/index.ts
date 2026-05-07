@@ -32,6 +32,13 @@ export interface Product {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  // 保质期
+  production_date?: string;   // 生产日期 ISO
+  shelf_life_value?: number;  // 保质期数值
+  shelf_life_unit?: '年' | '月' | '周' | '日';  // 单位
+  expiry_date?: string;       // 到期日期 ISO
+  // 软删除
+  archived?: boolean;
 }
 
 export interface Sale {

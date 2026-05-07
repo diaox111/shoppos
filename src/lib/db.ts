@@ -2,14 +2,14 @@ import { openDB, type IDBPDatabase } from 'idb'
 import type { Store, User, Product, Sale, SaleItem, StockAlert, SupplierAd } from '@/types'
 
 const DB_NAME = 'shoppos'
-const DB_VERSION = 1
+const DB_VERSION = 2 // bump version for new fields
 
 let dbPromise: Promise<IDBPDatabase> | null = null
 
 function getDB(): Promise<IDBPDatabase> {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains('stores')) {
           db.createObjectStore('stores', { keyPath: 'id' })
         }
@@ -45,7 +45,14 @@ function getDB(): Promise<IDBPDatabase> {
 
 // ── Utils ────────────────────────────────────────────
 function uid(): string {
-  return crypto.randomUUID()
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
 }
 
 function now(): string {
@@ -95,7 +102,7 @@ export async function upsertProduct(product: Omit<Product, 'id' | 'created_at' |
   const db = await getDB()
   if (existingId) {
     const old = await db.get('products', existingId)
-    const updated: Product = { ...old!, ...product, updated_at: now() }
+    const updated: Product = { ...old!, ...product, archived: false, updated_at: now() }
     await db.put('products', updated)
     return updated
   }
@@ -103,6 +110,7 @@ export async function upsertProduct(product: Omit<Product, 'id' | 'created_at' |
     id: uid(),
     ...product,
     image_url: product.image_url || '',
+    archived: false,
     created_at: now(),
     updated_at: now(),
   }
@@ -113,12 +121,35 @@ export async function upsertProduct(product: Omit<Product, 'id' | 'created_at' |
 export async function getProductByBarcode(store_id: string, barcode: string): Promise<Product | null> {
   const db = await getDB()
   const prods = await db.getAllFromIndex('products', 'store_barcode', [store_id, barcode])
-  return prods[0] || null
+  return prods.find(p => !p.archived) || null
 }
 
 export async function getProductsByStore(store_id: string): Promise<Product[]> {
   const db = await getDB()
-  return db.getAllFromIndex('products', 'store_id', store_id)
+  const all = await db.getAllFromIndex('products', 'store_id', store_id)
+  return all.filter(p => !p.archived)
+}
+
+// 查找已归档商品（扫码重录时自动填充历史信息）
+export async function getArchivedByBarcode(store_id: string, barcode: string): Promise<Product | null> {
+  const db = await getDB()
+  const prods = await db.getAllFromIndex('products', 'store_barcode', [store_id, barcode])
+  return prods.find(p => p.archived) || null
+}
+
+// 软删除
+export async function archiveProduct(id: string): Promise<void> {
+  const db = await getDB()
+  const p = await db.get('products', id)
+  if (p) { p.archived = true; p.updated_at = now(); await db.put('products', p) }
+}
+
+// 恢复归档
+export async function restoreProduct(product: Product): Promise<Product> {
+  const db = await getDB()
+  product.archived = false; product.updated_at = now()
+  await db.put('products', product)
+  return product
 }
 
 export async function updateProductStock(id: string, newStock: number): Promise<void> {
@@ -159,6 +190,14 @@ export async function createStockAlert(store_id: string, product_id: string, cur
 export async function getStockAlerts(store_id: string): Promise<StockAlert[]> {
   const db = await getDB()
   return db.getAllFromIndex('stock_alerts', 'store_id', store_id)
+}
+
+export async function markAlertsRead(store_id: string): Promise<void> {
+  const db = await getDB()
+  const all = await db.getAllFromIndex('stock_alerts', 'store_id', store_id)
+  for (const a of all) {
+    if (!a.is_read) { a.is_read = true; await db.put('stock_alerts', a); }
+  }
 }
 
 // ── Supplier Ads (pre-populated mock data) ────────────

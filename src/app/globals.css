@@ -49,3 +49,12 @@ input, select, button { font-size: 16px; } /* prevent iOS zoom */
 .bottom-nav-item.active {
   @apply text-blue-600;
 }
+
+/* 滚动广告动画 */
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-scroll {
+  animation: scroll 30s linear infinite;
+}

@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Vercel serverless — API routes work as functions
+  output: 'export',
+  images: { unoptimized: true },
+  turbopack: { root: __dirname },
 }
 
 module.exports = nextConfig
