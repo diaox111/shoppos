@@ -13,6 +13,8 @@ import { CATEGORIES, getCategoryLabel } from '@/lib/categories';
 import { getAllCities, getCityData, getDefaultDistricts, getPricingFactor, getAreaDesc } from '@/lib/regions';
 import BarcodeScannerView from './BarcodeScannerView';
 import StoreManagement from './StoreManagement';
+import FlipBoard, { InfoTicker } from './FlipBoard';
+import type { FlipTile } from './FlipBoard';
 import type { User, Product, CartItem } from '@/types';
 
 const ALL_CITIES = getAllCities();
@@ -258,21 +260,42 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Ad Banner */}
-      {supplierAds.length > 0 && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 overflow-hidden">
-          <div className="flex animate-scroll whitespace-nowrap py-2 px-2 gap-6">
-            {[...supplierAds, ...supplierAds].map((ad, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs flex-shrink-0">
-                <span className="font-medium text-gray-700">{ad.product_name}</span>
-                <span className="text-blue-600 font-bold">批发 ¥{ad.wholesale_price}</span>
-                <span className="text-gray-400">零售 ¥{ad.sell_price}</span>
-                <span className="text-gray-300">{ad.contact}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Flip Board — 智能广告牌 */}
+      <FlipBoard tiles={(() => {
+        const tiles: FlipTile[] = [];
+        const cats = [...new Set(products.map(p => p.category))];
+
+        // 1. Supplier ads matching store categories
+        const matchedAds = supplierAds.filter(a => cats.includes(a.category));
+        matchedAds.forEach(ad => {
+          tiles.push({ icon: '📢', label: '供应商', text: `${ad.product_name} 批发¥${ad.wholesale_price} 零售¥${ad.sell_price} | ${ad.contact}`, color: 'bg-blue-600' });
+        });
+
+        // 2. Hot pick — highest margin product
+        const highMargin = [...products].sort((a, b) => (b.sell_price - b.cost_price) - (a.sell_price - a.cost_price)).slice(0, 3);
+        highMargin.forEach(p => {
+          const margin = p.sell_price - p.cost_price;
+          tiles.push({ icon: '💰', label: '高毛利', text: `${p.name} 利润¥${margin.toFixed(1)}/件 | 库存${p.stock}`, color: 'bg-green-600' });
+        });
+
+        // 3. Stock alerts
+        const lowStock = products.filter(p => p.stock <= p.min_stock).slice(0, 3);
+        lowStock.forEach(p => {
+          tiles.push({ icon: '⚠️', label: '库存预警', text: `${p.name} 仅剩${p.stock}件（预警线${p.min_stock}）`, color: 'bg-red-500' });
+        });
+
+        // 4. Category insight
+        if (cats.length > 0) {
+          const topCat = cats[Math.floor(Math.random() * cats.length)];
+          const catProducts = products.filter(p => p.category === topCat);
+          tiles.push({ icon: '📊', label: '品类洞察', text: `「${topCat}」类共${catProducts.length}种商品 | 建议关注新品`, color: 'bg-purple-600' });
+        }
+
+        // 5. General tips
+        tiles.push({ icon: '💡', label: '经营贴士', text: `共${products.length}种商品 · 缺货${alerts.length}种 · 今日已收银`, color: 'bg-amber-600' });
+
+        return tiles;
+      })()} />
 
       {debug && (<div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-xs text-yellow-800 font-mono">🐛 {debug}<button onClick={() => setDebug('')} className="ml-2 text-yellow-600 underline">关闭</button></div>)}
       {checkoutMsg && (<div className="fixed top-16 left-4 right-4 z-50 bg-green-600 text-white rounded-xl px-4 py-3 text-center font-bold shadow-lg animate-bounce">{checkoutMsg}</div>)}
@@ -321,7 +344,7 @@ export default function Home() {
 
           {/* Checkout bar */}
           {cart.length > 0 && (
-            <div className="fixed bottom-20 left-0 right-0 px-4 z-30">
+            <div className="fixed bottom-28 left-0 right-0 px-4 z-30">
               <div className="card bg-blue-600 text-white flex justify-between items-center shadow-lg">
                 <div><span className="text-sm opacity-80">{cartCount}件</span><span className="text-2xl font-bold ml-3">¥{cartTotal.toFixed(2)}</span></div>
                 <button onClick={handleCheckout} className="bg-white text-blue-600 px-6 py-3 rounded-xl font-bold text-lg active:bg-blue-50">💳 收款</button>
@@ -413,6 +436,30 @@ export default function Home() {
       )}
 
       {/* ═══ Bottom Nav ═══ */}
+      {/* Bottom Ticker — 固定信息滚动条 */}
+      <div className="fixed bottom-14 left-0 right-0 z-40">
+        <InfoTicker lines={(() => {
+          const lines: string[] = [];
+          const hotProducts = products.filter(p => p.stock > 0).slice(0, 8);
+          hotProducts.forEach(p => {
+            const margin = p.sell_price - p.cost_price;
+            lines.push(`🔥${p.name} 售¥${p.sell_price} 毛利¥${margin.toFixed(1)}`);
+          });
+          const storeCats = [...new Set(products.map(p => p.category))];
+          const matchedAds = supplierAds.filter(a => storeCats.includes(a.category));
+          matchedAds.slice(0, 5).forEach(ad => {
+            lines.push(`📢${ad.supplier}: ${ad.product_name} 批发¥${ad.wholesale_price}`);
+          });
+          if (alerts.length > 0) {
+            lines.push(`⚠️ 库存预警: ${alerts.length}种商品低于安全线`);
+          }
+          if (products.length > 0) {
+            const totalValue = products.reduce((s, p) => s + p.stock * p.cost_price, 0);
+            lines.push(`📦 库存总值 ¥${totalValue.toFixed(0)} | 共${products.length}种商品`);
+          }
+          return lines;
+        })()} />
+      </div>
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-end py-2 z-50">
         {[
           { id: 'entry', icon: '📝', label: '商品录入' },

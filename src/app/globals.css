@@ -58,3 +58,21 @@ input, select, button { font-size: 16px; } /* prevent iOS zoom */
 .animate-scroll {
   animation: scroll 30s linear infinite;
 }
+
+/* 翻牌广告牌动画 */
+@keyframes slideUp {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
+/* 底部跑马灯慢速 */
+@keyframes crawl {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-crawl {
+  animation: crawl 60s linear infinite;
+}
