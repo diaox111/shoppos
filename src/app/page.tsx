@@ -82,14 +82,32 @@ export default function Home() {
 
   const emptyForm = { name: '', category: '', subcategory: '', spec: '', cost_price: '', sell_price: '', carton_price: '', stock: '0', min_stock: '5', production_date: '', shelf_life_value: '', shelf_life_unit: '月' as '年' | '月' | '周' | '日', expiry_date: '' };
 
+  // ── Back button (Android hardware back)
+  const lastBackPress = useRef(0);
+
   // ── Init
   useEffect(() => {
     window.onerror = (msg, src, line) => { setDebug('JS错误: ' + String(msg) + ' 行' + line); return false; };
     window.onunhandledrejection = (e) => { setDebug('未处理Promise: ' + (e.reason?.message || String(e.reason))); };
     initSupplierAds().catch(() => {});
     getSupplierAds().then(ads => setSupplierAds(ads || [])).catch(() => {});
-    try { const saved = localStorage.getItem('shoppos_user'); if (saved) { const u = JSON.parse(saved); setUser(u); setShowLogin(false); loadData(u).catch(() => {}); } } catch {}
+    try { const saved = localStorage.getItem('shoppos_user'); if (saved) { const u = JSON.parse(saved); setUser(u); setShowLogin(false); loadData(u).catch(() => {}); } } catch (_) {}
     setLoading(false);
+
+    // Android back button → double-press to exit
+    const handleBack = (e: Event) => {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastBackPress.current < 2000) {
+        (window as any).Capacitor?.App?.exitApp?.();
+      } else {
+        lastBackPress.current = now;
+        setCheckoutMsg('再按一次退出应用');
+        setTimeout(() => setCheckoutMsg(''), 2000);
+      }
+    };
+    document.addEventListener('backbutton', handleBack, false);
+    return () => document.removeEventListener('backbutton', handleBack);
   }, []);
 
   const loadData = async (u: User) => {
@@ -97,7 +115,7 @@ export default function Home() {
       const [prods, alertList] = await Promise.all([getProductsByStore(u.store_id), getStockAlerts(u.store_id)]);
       setProducts(prods.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
       setAlerts(alertList.filter(a => !a.is_read));
-    } catch {}
+    } catch (_) {}
   };
 
   // ── Auth
@@ -444,6 +462,12 @@ export default function Home() {
       {/* ═══ PURCHASE TAB — 进货 ═══ */}
       {tab === 'purchase' && (
         <div>
+          {/* Back/Exit bar */}
+          <div className="flex items-center px-4 pt-3 pb-1">
+            <button onClick={() => setTab('cashier')} className="text-sm text-blue-600 flex items-center gap-1">
+              ← 返回收银
+            </button>
+          </div>
           <PurchasePage storeProducts={products} onAddToPurchase={handleMockAddToPurchase} />
 
           {/* Mock Purchase List */}
@@ -457,8 +481,12 @@ export default function Home() {
                     <p className="font-bold text-sm truncate">{item.wholesale.name}</p>
                     <p className="text-xs text-gray-400">{item.supplier.name} · ¥{item.price}/件</p>
                   </div>
-                  <input type="number" value={item.qty} onChange={e => setMockPurchaseList(prev => prev.map((p, i) => i === idx ? { ...p, qty: Math.max(1, Number(e.target.value) || 1) } : p))}
-                    className="w-16 input text-center text-sm" min="1" />
+                  <input type="text" inputMode="numeric" value={item.qty} onChange={e => {
+                    const raw = e.target.value.replace(/\D/g, '');
+                    const val = raw === '' ? '' : Math.max(1, parseInt(raw) || 1);
+                    setMockPurchaseList(prev => prev.map((p, i) => i === idx ? { ...p, qty: val === '' ? 1 : val as number } : p));
+                  }}
+                    className="w-16 input text-center text-sm" />
                   <button onClick={() => removeMockPurchase(item.wholesale.id, item.supplier.id)} className="text-red-400 text-sm">✕</button>
                 </div>
               ))}
