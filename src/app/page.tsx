@@ -263,7 +263,7 @@ export default function Home() {
       {/* Flip Board — 智能广告牌 */}
       <FlipBoard tiles={(() => {
         const tiles: FlipTile[] = [];
-        const cats = [...new Set(products.map(p => p.category))];
+        const cats = Array.from(new Set(products.map(p => p.category)));
 
         // 1. Supplier ads matching store categories
         const matchedAds = supplierAds.filter(a => cats.includes(a.category));
@@ -445,7 +445,7 @@ export default function Home() {
             const margin = p.sell_price - p.cost_price;
             lines.push(`🔥${p.name} 售¥${p.sell_price} 毛利¥${margin.toFixed(1)}`);
           });
-          const storeCats = [...new Set(products.map(p => p.category))];
+          const storeCats = Array.from(new Set(products.map(p => p.category)));
           const matchedAds = supplierAds.filter(a => storeCats.includes(a.category));
           matchedAds.slice(0, 5).forEach(ad => {
             lines.push(`📢${ad.supplier}: ${ad.product_name} 批发¥${ad.wholesale_price}`);
